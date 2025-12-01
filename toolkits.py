@@ -61,7 +61,6 @@ def read_ndjson_clean_save(raw_filename):
 
 
 def with_filelock(func):
-    """装饰器：给文件操作函数加 FileLock"""
     @wraps(func)
     def wrapper(filepath, *args, **kwargs):
         folder_path = os.path.dirname(filepath)
@@ -319,14 +318,6 @@ def plot_bar_chart_from_mu_sigma(mu, sigma, num_users=200):
 
 
 def dict_statistics(input_dict, info):
-    """
-    We use user_comments_dict and news_users_dict for aggregating. However, some users or news items
-    are related to too many comments or users, which may lead to memory issues.
-    This function is used to analyze the distribution of comments and users in the input_dict.
-    It can help us determine the best truncation length.
-    :param input_dict: uc_dict or nu_dict; {key1: [value1, value2], key2: [value3], ...}
-    :return: values distribution
-    """
     values_counts = [len(value_list) for value_list in input_dict.values()]
     percentiles = np.percentile(values_counts, [50, 75, 90, 95, 99])
     print(f"Statistics for {info}:")
