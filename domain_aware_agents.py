@@ -36,7 +36,6 @@ file_access_lock = Lock()
 
 
 def load_data_domain(mode, start_no, root_path="D:/WorkSpace/workspace/LLMFND/", get_subset=False, selected_user_num=500):
-    # ========== 路径选择 ==========
     base_path = root_path + "Results/Prelim/"
     if mode in ["politifact", "gossipcop"]:
         veracity_dict_path = base_path + "veracity_dict_1_fake"
@@ -66,25 +65,21 @@ def load_data_domain(mode, start_no, root_path="D:/WorkSpace/workspace/LLMFND/",
     news_id_idx_dict_path = save_path_load + "news_id_idx_dict"
     news_idx_content_dict_path = save_path_load + "news_idx_content_dict"
 
-    # ========== 读取基础字典 ==========
     veracity_dict = read_dict(veracity_dict_path)
     news_dict_all = read_dict(news_dict_path)
     u_at_dict_all = read_dict(u_at_dict_path)
     user_type_dict = read_dict(user_type_path)
     comments_dict = read_dict(comments_dict_path)
 
-    # ========== 过滤出当前 domain 的 news ==========
     if mode in ["politifact", "gossipcop"]:
         news_ids = [nid for nid in news_dict_all.keys() if mode in nid]
     else:  # covid
         news_ids = list(news_dict_all.keys())
 
-    # 构建 idx → veracity
     domain_idx_dict = {}
     for i, news_id in enumerate(news_ids):
         domain_idx_dict[i+start_no] = veracity_dict[news_id]
 
-    # ========== 建立 idx ↔ id 映射 ==========
     if os.path.exists(news_idx_content_dict_path + '.json') and os.path.exists(news_id_idx_dict_path + '.json'):
         news_idx_content_dict = read_dict(news_idx_content_dict_path)
         news_id_idx_dict = read_dict(news_id_idx_dict_path)
@@ -96,7 +91,6 @@ def load_data_domain(mode, start_no, root_path="D:/WorkSpace/workspace/LLMFND/",
         save_dict(news_idx_content_dict_path, news_idx_content_dict)
         save_dict(news_id_idx_dict_path, news_id_idx_dict)
 
-    # ========== 过滤用户，只保留和当前 domain 有交互的 ==========
     nidx_u_dict, uc_dict, u_at_dict = {}, {}, {}
     all_user_ids = []
     if os.path.exists(uc_dict_path + '.json') and os.path.exists(nidx_u_dict_path + '.json'):
@@ -121,16 +115,11 @@ def load_data_domain(mode, start_no, root_path="D:/WorkSpace/workspace/LLMFND/",
         save_dict(uc_dict_path, uc_dict)
         save_dict(nidx_u_dict_path, nidx_u_dict)
 
-    # ========== subset 逻辑 ==========
     if get_subset:
         subset_save_path = save_path_load + f"{selected_user_num}/"
         if not os.path.exists(subset_save_path):
             os.makedirs(subset_save_path)
-
-        # 简单随机抽样
         user_subset = random.sample(all_user_ids, min(selected_user_num, len(all_user_ids)))
-
-        # 构建 subset 对应的 nidx_u / uc / u_at
         nidx_u_dict_subset, uc_dict_subset, u_at_dict_subset = {}, {}, {}
         news_subset = set()
         for user_id in user_subset:
@@ -160,8 +149,6 @@ def hd_loss_calc(hd_output, veracity_labels, domain_labels, recon_ref, calc_lvl)
         (vr_logits_list, vi_logits_list, dsh_logits_list, dsf_logits_list,
          vr_feature_list, vi_feature_list, dsh_feature_list, dsf_feature_list,
          recon_ref_list) = [], [], [], [], [], [], [], [], []
-        # [[hd_output(tuple), recon_ref],...]
-        # hd_u_memory_output: (max_related_users_num, 2); hd_comment_output: (num_users, max_comments_num, 2)
         if calc_lvl == "user":
             def get_mean(x): return x.mean(dim=1)
         elif calc_lvl == "comment":
@@ -182,12 +169,10 @@ def hd_loss_calc(hd_output, veracity_labels, domain_labels, recon_ref, calc_lvl)
                 recon_ref_list.append(ts)
             except Exception as e:
                 print(f"\n[Error] in hd_loss_calc for {calc_lvl}: {e}")
-        # logits需要合并到news level (32, 2)
         vr_logits = torch.cat(vr_logits_list, dim=0)
         vi_logits= torch.cat(vi_logits_list, dim=0)
         dsh_logits = torch.cat(dsh_logits_list, dim=0)
         dsf_logits = torch.cat(dsf_logits_list, dim=0)
-        # features直接第0维合并
         vr_feature = torch.cat(vr_feature_list, dim=0)
         vi_feature = torch.cat(vi_feature_list, dim=0)
         dsh_feature = torch.cat(dsh_feature_list, dim=0)
@@ -205,7 +190,6 @@ def hd_loss_calc(hd_output, veracity_labels, domain_labels, recon_ref, calc_lvl)
     dsf_loss = cls_criterion(dsf_logits, domain_labels)
     ad_dsh_loss = torch.clamp(1 - cls_criterion(dsh_logits, domain_labels), min=0)
     d_loss = dsf_loss + ad_dsh_loss
-    # [2.3]: Reconstruction Loss of input content_embedding
     if calc_lvl == "comment":
         vr_feature = vr_feature.view(-1, vr_feature.size(2), vr_feature.size(3))
         vi_feature = vi_feature.view(-1, vi_feature.size(2), vi_feature.size(3))
@@ -217,7 +201,6 @@ def hd_loss_calc(hd_output, veracity_labels, domain_labels, recon_ref, calc_lvl)
     # news / news feature (32,256,16); user memory (320,256,16); comments / hst news (user * comment,256,16)
     per_sample_r1_loss = whole_r1_loss.mean(dim=(1, 2))
     r1_loss = per_sample_r1_loss.mean(dim=0)
-    # [2.4]: Reconstruction Loss of veracity-relevant features
     vr_reconstruct = dsh_feature + dsf_feature
     whole_r2_loss = recon_criterion(vr_reconstruct, vr_feature)
     per_sample_r2_loss = whole_r2_loss.mean(dim=(1, 2))
@@ -306,17 +289,15 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
             hd_n_feature_output = hd_news_feature(news_features_embeddings_batch_p, news_features_mask_batch)
             news_features_embeddings_batch_p = hd_n_feature_output[6]  # dsh_feature (32,256,16)
             # =============================
-            if "news replaced" in run_mode:  # 此为ablation模式, 验证特征效果
+            if "news replaced" in run_mode:  
                 news_embeddings_batch = news_features_embeddings_batch_p
                 news_mask_batch = news_features_mask_batch.unsqueeze(-1)
-            elif "news augmented" in run_mode:  # 此为最终模式之一,特征和内容的embed分别用HD处理,再用attn对齐
-                # 1.先分别HD
-                # (先不加) 2.对齐前加正则或者线性层进行domain calibration, aka不同领域的特征可能分布有差异,让他学会怎么统一"正则"
+            elif "news augmented" in run_mode:  
                 news_attended = news_attn(news_embeddings_batch_p, news_features_embeddings_batch_p,
                                           news_mask_batch.squeeze(-1), news_features_mask_batch.squeeze(-1))
                 news_embeddings_batch = news_attended
-                news_mask_batch = None  # attention之后不用mask了
-        else:  # 此为ablation模式,只单独用内容,不基于LLM强化
+                news_mask_batch = None 
+        else: 
             news_embeddings_batch = news_embeddings_batch_p
             news_mask_batch = news_mask_batch.unsqueeze(-1)
 
@@ -326,12 +307,10 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
         save_embedding_h5(news_mask_file_path, news_mask_batch, "mask")
         # news_embeddings_batch_p (32,256,16)
         news_embeddings_batch_p = news_input_proj(news_embeddings_batch)
-        # ==== 先用hd处理news content ===
         news_mask_batch = news_mask_batch.unsqueeze(-1)
         # dsh_logits1 (32, 2)
         hd_news_output = hd_news(news_embeddings_batch_p, news_mask_batch)
         news_embeddings_batch_p = hd_news_output[6]  # dsh_feature (32,256,16)
-        # ==============================
         if "news replaced" in run_mode or "news augmented" in run_mode:
             new_features_list = []
             for news_idx in news_batch:
@@ -344,82 +323,32 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
             save_embedding_h5(news_features_mask_file_path, news_features_mask_batch, "mask")
             # news_features_embeddings_batch_p (32,256,16)
             news_features_embeddings_batch_p = news_feature_input_proj(news_features_embeddings_batch)
-            # ==== 先用hd处理news feature ===
             news_features_mask_batch = news_features_mask_batch.unsqueeze(-1)
             # dsh_logits2 (32, 2)
             hd_n_feature_output = hd_news_feature(news_features_embeddings_batch_p, news_features_mask_batch)
             news_features_embeddings_batch_p = hd_n_feature_output[6]  # dsh_feature (32,256,16)
-            # =============================
-            if "news replaced" in run_mode:  # 此为ablation模式, 验证特征效果
+            if "news replaced" in run_mode:
                 news_embeddings_batch = news_features_embeddings_batch_p
                 news_mask_batch = news_features_mask_batch.unsqueeze(-1)
-            elif "news augmented" in run_mode:  # 此为最终模式之一,特征和内容的embed分别用HD处理,再用attn对齐
-                # 1.先分别HD, news feature和news content
-                # (先不加) 2.对齐前加正则或者线性层进行domain calibration, aka不同领域的特征可能分布有差异,让他学会怎么统一"正则"
+            elif "news augmented" in run_mode: 
                 news_attended = news_attn(news_embeddings_batch_p, news_features_embeddings_batch_p,
                                           news_mask_batch.squeeze(-1), news_features_mask_batch.squeeze(-1))
                 news_embeddings_batch = news_attended
                 news_mask_batch = None
-        else:  # 此为ablation模式,只单独用内容,不基于LLM强化
+        else: 
             news_embeddings_batch = news_embeddings_batch_p
             news_mask_batch = news_mask_batch.unsqueeze(-1)
-    # # news embedding disentangling; get logits for training disentangler
-    # # news_embeddings_batch (32,256,16)
-    # if news_mask_batch is None:
-    #     (vr_logits, vi_logits, dsh_logits, dsf_logits,
-    #      vr_feature, vi_feature, dsh_feature, dsf_feature) = hd_news(news_embeddings_batch)
-    # else:
-    #     (vr_logits, vi_logits, dsh_logits, dsf_logits,
-    #      vr_feature, vi_feature, dsh_feature, dsf_feature) = hd_news(news_embeddings_batch, news_mask_batch)
-    # dsh_feature (32,256,16); news_content_feature_batch (32,256,8)
-    # news_content_feature_batch = news_embedding_mlp(dsh_feature + dsf_feature)
 
-    # ==== 新的处理把hd放到前面去了,这里统一处理过来的任何news_embeddings_batch ====
     news_content_feature_batch = news_embedding_mlp(news_embeddings_batch)
-    # ======================================================================
-    # news_content_feature_batch (32,2048)
     news_content_feature_batch = news_content_feature_batch.view(news_content_feature_batch.size(0), -1)
-    # news_content_batch (32,8)
     news_content_batch = news_output_mlp(news_content_feature_batch)
 
-    # user engagement data aggregating from comments
     user_memory_all_news, user_comment_all_news, user_enhanced_all_news = [], [], []
-    # user_memory_mask_all_news, user_comment_mask_all_news, user_enhanced_mask_all_news = [], [], []
-
-    # comment_embeddings_file_path = comment_embedding_path + f"embedding/{model_type}/{step}"
-    # comment_mask_file_path = comment_embedding_path + f"mask/{model_type}/{step}"
-    # comment_corres_rows_file_path = comment_embedding_path + f"corres_rows_dict/{model_type}/{step}"
-    #
-    # hst_news_embeddings_file_path = hst_news_embedding_path + f"embedding/{model_type}/{step}"
-    # hst_news_mask_file_path = hst_news_embedding_path + f"mask/{model_type}/{step}"
-    # # comment_corres_rows_file_path 和comment共用一个文件
-
     hc_embeddings_file_path = hc_embedding_path + f"embedding/{model_type}/{step}"
     hc_mask_file_path = hc_embedding_path + f"mask/{model_type}/{step}"
-    comment_corres_rows_file_path = hc_embedding_path + f"corres_rows_dict/{model_type}/{step}"  # 还叫comment是为了避免过度修改
+    comment_corres_rows_file_path = hc_embedding_path + f"corres_rows_dict/{model_type}/{step}" 
 
     with file_access_lock:
-        # try:
-        #     all_comment_embeddings = read_embedding_h5("embedding", comment_embeddings_file_path).to(DEVICE)
-        #     all_comment_mask = read_embedding_h5("mask", comment_mask_file_path).to(DEVICE)
-        #     corres_rows = read_dict(comment_corres_rows_file_path)
-        #     comment_loaded = True
-        # except FileNotFoundError:
-        #     all_comment_embeddings, all_comment_mask = [], []
-        #     corres_rows = {}
-        #     comment_loaded = False
-        #
-        # try:
-        #     all_hst_news_embeddings = read_embedding_h5("embedding", hst_news_embeddings_file_path).to(DEVICE)
-        #     all_hst_news_mask = read_embedding_h5("mask", hst_news_mask_file_path).to(DEVICE)
-        #     corres_rows = read_dict(comment_corres_rows_file_path)  # 和comment共用一个文件
-        #     hst_news_loaded = True
-        # except FileNotFoundError:
-        #     all_hst_news_embeddings, all_hst_news_mask = [], []
-        #     corres_rows = {}
-        #     hst_news_loaded = False
-
-        # ==== comment和hst news合并保存 ====
         try:
             all_hc_embeddings = read_embedding_h5("embedding", hc_embeddings_file_path).to(DEVICE)
             all_hc_mask = read_embedding_h5("mask", hc_mask_file_path).to(DEVICE)
@@ -429,40 +358,30 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
             all_hc_embeddings, all_hc_mask = [], []
             corres_rows = {}
             comment_loaded = False
-        # =================================
         hd_u_profile_output_all_news, hd_comment_output_all_news, hd_hst_news_output_all_news = [], [], []
         news_which_has_profile, news_which_has_users = [], []
         for i_news, news_idx in enumerate(news_batch):
             news_idx = str(news_idx.item())
             related_users = list(set(nu_dict.get(news_idx, [])))
 
-            if "user replaced" in run_mode or "user augmented" in run_mode:  # 两个模式都要用user memory
+            if "user replaced" in run_mode or "user augmented" in run_mode:
                 user_memory_text_all_users = []
-                # 省略comments中提取特征的过程
                 if len(related_users) == 0:
-                    # user_features_padding = torch.zeros(1, max_related_users_num,
-                    #                                     user_encode_mlp.output_size * max_comments_num).to(DEVICE)
-                    # # user_encode_mlp.output_size * max_comments_num is to align with input of user_feature_mlp
-                    # user_memory_all_news.append(user_features_padding)
                     raise ValueError(f"News {news_idx} has no related users.")
                 else:
                     if len(related_users) > max_related_users_num:
                         related_users = related_users[:max_related_users_num]
                     for user_id in related_users:
-                        # 每个user一个memory,集合所有users的memories一起encode
                         try:
                             user_memory_text_per_user = user_memory_dict[user_id]
                             user_memory_text_all_users.append(user_memory_text_per_user)
                         except KeyError:
-                            # print(f"\nWarning: User {user_id} not found in user memory dictionary.")  # 42226593
-                            user_memory_text_per_user = "This user has no memory."  # TODO 尽量让每个用户都有memory
+                            user_memory_text_per_user = "This user has no memory." 
                             user_memory_text_all_users.append(user_memory_text_per_user)
-                    # todo user_memory_encoded_all_users存入文件吗?存!!!
                     user_memory_encoded_all_users, user_memory_mask_all_users = encode_content(lm_list,
                                                                                                user_memory_text_all_users,
                                                                                                max_length=uml)
                     user_memory_encoded_all_users_p = user_memory_input_proj(user_memory_encoded_all_users)
-                    # 用户数量不一致,padding一下,顺便生成mask. max_related_users_num
                     user_memory_encode_out_dim = user_memory_input_proj.output_size
                     max_sequence_length = user_memory_encoded_all_users.size(1)
                     user_memory_padding = torch.zeros(max_related_users_num - len(user_memory_text_all_users),
@@ -472,33 +391,24 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
 
                     user_memory_all_users = torch.cat((user_memory_encoded_all_users_p, user_memory_padding), dim=0)
                     user_memory_padding_mask = torch.cat((user_memory_mask_all_users, user_mask_padding), dim=0)
-                    # ==== 用hd处理user memory ====
                     user_memory_padding_mask = user_memory_padding_mask.unsqueeze(-1)
                     # dsh_logits3 (max_related_users_num, 2)
                     hd_u_profile_output = hd_user_profile(user_memory_all_users, user_memory_padding_mask)
                     user_memory_all_users = hd_u_profile_output[6]
                     hd_u_profile_output_all_news.append([hd_u_profile_output, user_memory_all_users])
                     news_which_has_profile.append(i_news)
-                    # ============================
 
-                    # 如果"user replaced"，aggregate所有用户的memory features
-                    # 否则先不用aggregate,user_memory_all_users要先和后面的engagement features融合再tf
                     if "user replaced" in run_mode:
                         user_memory_features = user_memory_tf(user_memory_mlp(user_memory_all_users),
                                                               user_memory_padding_mask.squeeze(-1))
-                        # memory_encode_mlp和后面处理engagement features的部分共用,所以此处view成类似的尺寸
                         user_memory_features = user_memory_features.reshape(user_memory_features.size(0), -1)
                         user_memory_features_encoded = memory_encode_mlp(user_memory_features)
-                        # user_memory_padding_mask_p = user_memory_padding_mask.squeeze(-1).any(dim=-1).float()
                         user_memory_all_news.append(user_memory_features_encoded.unsqueeze(0))  # (1, 10, 2560)
-                        # user_memory_mask_all_news.append(user_memory_padding_mask_p.unsqueeze(0))
 
-            if "user replaced" not in run_mode:  # 不是"user replaced"的话,就需要comments
-                # comparison of comment features or related news articles for user features
+            if "user replaced" not in run_mode:
                 user_padding_flag = False
                 only_one_padding_user = 0
                 if len(related_users) == 0:
-                    # only_one_padding_user = 1
                     comment_features = torch.zeros(1, max_comments_num, cml * hst_news_input_proj.output_size).to(DEVICE)
                     comment_padding_mask_2d = torch.zeros(1, max_comments_num).to(DEVICE)
                     engagement_features = comment_features
@@ -507,35 +417,18 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                     if len(related_users) > max_related_users_num:
                         related_users = related_users[:max_related_users_num]
                         user_padding_flag = True
-                    # 用comment提取特征 (or加上historical news提取的特征)
-                    # user_loop_start_time = datetime.datetime.now()  # =================================user loop start
                     all_comments, comment_owner_indices, user_id_list_ordered = [], [], []
                     all_hst_news_articles, hst_owner_indices, all_comments_from_news = [], [], []
-                    # Step 1: collect all users' comments and their lengths (or collect all users' historical news)
                     num_valid_users = len(related_users)
                     for user_id in related_users:
-                        # comment_ids_raw = uc_dict.get(user_id, [])  # 可能包含target news本人的comment
-                        # comment_ids = comment_ids_raw[:max_comments_num]
-                        # comments = []
-                        # for cid in comment_ids:
-                        #     try:
-                        #         comment = comments_dict[cid].split("###")[0]
-                        #     except Exception:
-                        #         comment = comments_dict[cid]
-                        #     comments.append(comment)
-                        # user_id_list_ordered.append(user_id)
-                        # comment_owner_indices.extend([user_id] * len(comments))
-                        # all_comments.extend(comments)
-
-                        # 就算不用hst news,也需要根据hst news来找comments.以便保持hst news和comments数量一致
                         hst_news_idx_raw = un_dict_4batch.get(user_id, [])
-                        if len(hst_news_idx_raw) == 0:  # 如果没有历史新闻,就跳过这个用户
+                        if len(hst_news_idx_raw) == 0:
                             num_valid_users -= 1
                             continue
-                        hst_news_idx_tensor = torch.tensor(hst_news_idx_raw)  # 借用max_comments_num
+                        hst_news_idx_tensor = torch.tensor(hst_news_idx_raw) 
                         hst_news_idx = hst_news_idx_tensor[:max_comments_num]
                         hst_news_articles = get_text_data_batch(hst_news_idx, news_idx_content_dict)
-                        hst_owner_indices.extend([user_id] * len(hst_news_articles))  # len(comments) == len(hst_news)吗? 有误差,所以应该先确定hst news,再找comments.
+                        hst_owner_indices.extend([user_id] * len(hst_news_articles))
                         all_hst_news_articles.extend(hst_news_articles)
                         # coresponding comments
                         at_list = u_at_dict.get(user_id, [])
@@ -550,8 +443,7 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                         for hn in hst_news_idx:
                             cores_comment_id = at_dict4batch.get(str(hn.item()), [])
                             comment_id_from_news.append(cores_comment_id)
-                            # 获取comment的内容,如果一则新闻有多个comment,串联起来当作一条.最后comment数量和hst news数量保持一致.
-                            c4n = ""  # comments for news
+                            c4n = ""
                             for cid in cores_comment_id:
                                 try:
                                     c = comments_dict[cid].split("###")[0]
@@ -562,23 +454,13 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                         user_id_list_ordered.append(user_id)
                         comment_owner_indices.extend([user_id] * len(comment_from_news))
                         all_comments_from_news.extend(comment_from_news)
-                        all_comments = all_comments_from_news  # todo 这里可以保存
-                    # user_loop_end_time = datetime.datetime.now()  # =====================================user loop end
-                    # time_interval = (user_loop_end_time - user_loop_start_time).total_seconds()
-                    # print(f"\nInfo: User loop time cost: {time_interval} seconds.")  # 0.00几秒
+                        all_comments = all_comments_from_news
 
-                    # 遍历完related_users之后,如果num_valid_users变成0了,说明所有用户都没有hst news,假装没有related users.
-                    # print(f"\nInfo: {num_valid_users} / {len(related_users)} valid users.")
                     if num_valid_users < len(related_users):
                         user_padding_flag = False
                     if num_valid_users > 0:
-                        # ==== comment和hst news合并保存 ====
                         if comment_loaded:
                             if news_idx not in corres_rows:
-                                # print(f"\n[Error]: "
-                                #       f"News {news_idx} not in corres_rows, with length {len(corres_rows.keys())}."
-                                #       f"file No. is {step}")
-                                # raise ValueError(f"News {news_idx} not in corres_rows.")
                                 hc_embeddings = torch.zeros((1, 2 * cml, 768)).to(DEVICE)
                                 hc_mask = torch.zeros((1, 2 * cml)).to(DEVICE)
                             else:
@@ -605,7 +487,6 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                         hst_news_embeddings_p = hst_news_input_proj(hst_news_embeddings)
                         comment_embeddings_p = comment_input_proj(comment_embeddings)
 
-                        # Step 3: padding comment embeddings to the fixed-size tensors
                         num_users = len(user_id_list_ordered)
                         hidden_dim = comment_embeddings_p.size(1)
                         embedding_dim = comment_embeddings_p.size(2)
@@ -629,7 +510,7 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
 
                         hidden_dim2 = hst_news_embeddings_p.size(1)
                         embedding_dim2 = hst_news_embeddings_p.size(2)
-                        hst_news_embedding_tensor = torch.zeros(num_users, max_comments_num,  # 借用max_comments_num
+                        hst_news_embedding_tensor = torch.zeros(num_users, max_comments_num,
                                                                 hidden_dim2, embedding_dim2).to(DEVICE)
                         hst_news_padding_mask = torch.zeros(num_users, max_comments_num, hidden_dim2).to(DEVICE)
                         cursor_per_user2 = defaultdict(int)
@@ -642,60 +523,15 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                                 cursor_per_user2[uid] += 1
                         hst_news_padding_mask = hst_news_padding_mask.unsqueeze(-1)
 
-                        # Step 4: feed batch to HD
-                        # if pre_trained_hd == "F":
-                        #     hd_out = hd_comment(comment_embedding_tensor, comment_padding_mask)
-                        # else:
-                        #     hd_out = hd(comment_embedding_tensor, comment_padding_mask)
-                        # if comment_embed_mode == "dsh":
-                        #     comments_embedding = hd_out[2]  # dsh
-                        # elif comment_embed_mode == "dsh_dsf":
-                        #     comments_embedding = hd_out[2] + hd_out[3]  # dsh + dsf
-                        # elif comment_embed_mode == "raw":
-                        #     comments_embedding = comment_embedding_tensor
-                        # else:
-                        #     raise ValueError(f"Unknown comment_embed_mode: {comment_embed_mode}")
-                        # ==== hd处理comment ====
-                        # comment部分也要训练.所以要用logits算损失,label用新闻真假标签
-                        # HierarchicalDisentangler中对四维输入的处理也改了
-                        # dsh_logits4 (num_users, max_comments_num, 2)
                         hd_comment_output = hd_comment(comment_embedding_tensor, comment_padding_mask)
                         comments_embedding = hd_comment_output[6]
                         news_which_has_users.append(i_news)
                         hd_comment_output_all_news.append([hd_comment_output, comment_embedding_tensor])
-                        # ======================
-                        # hd_out2 = hd(hst_news_embedding_tensor, hst_news_padding_mask)
-                        # if comment_embed_mode == "dsh":
-                        #     hst_news_embedding = hd_out2[2]
-                        # elif comment_embed_mode == "dsh_dsf":
-                        #     hst_news_embedding = hd_out2[2] + hd_out2[3]
-                        # elif comment_embed_mode == "raw":
-                        #     hst_news_embedding = hst_news_embedding_tensor
-                        # else:
-                        #     raise ValueError(f"Unknown comment_embed_mode: {comment_embed_mode}")
-                        # ==== hd处理hst news ====
-                        # dsh_logits5 (num_users, max_comments_num, 2)
+                        
                         hd_hst_news_output = hd_news(hst_news_embedding_tensor, hst_news_padding_mask)
                         hst_news_embedding = hd_hst_news_output[6]
                         hd_hst_news_output_all_news.append([hd_hst_news_output, hst_news_embedding_tensor])
-                        # ======================
-                        # # encoded代表comments序列, encoded2代表hst news序列
-                        # encoded = comment_encode_mlp(comments_embedding).view(num_users, max_comments_num, -1)
-                        # comment_padding_mask_2d = comment_padding_mask.squeeze(-1).any(dim=-1).float()
-                        # encoded2 = hst_news_encode_mlp(hst_news_embedding).view(num_users, max_comments_num, -1)  # 借用max_comments_num
-                        # hst_news_padding_mask_2d = hst_news_padding_mask.squeeze(-1).any(dim=-1).float()
-                        # # (先不加) fusion之前加正则或者线性层进行domain calibration
-                        # # 把comment和hst news的特征co/cross attention起来; 然后借用comments_tf
-                        # # 此处为stance-aware fusion
-                        # hc_features = hc_attn(encoded2, encoded,
-                        #                       hst_news_padding_mask_2d,
-                        #                       comment_padding_mask_2d)  # 所有user的comment和hst news在此融合
-                        # # 此tf为historical engagement aggregation,得到每一个用户的engagement encoding(实际操作所有用户一起做了)
-                        # comment_aware_hst_news_features = comments_tf(comments_mlp(hc_features),
-                        #                                               hst_news_padding_mask_2d)  # mask应该用hst或者comment的都可以; 借用tf和mlp
-                        # engagement_features = comment_aware_hst_news_features  # 所有user,每人一个engagement feature,来自comment和hst news
-                        # engagement_padding_mask_2d = hst_news_padding_mask_2d
-                        # ==== 改降维度方式 ====
+                       
                         comments_embedding_re = comments_embedding.view(-1, comments_embedding.size(2),
                                                                         comments_embedding.size(3))
                         comment_padding_mask_re = comment_padding_mask.view(-1, comment_padding_mask.size(2),
@@ -712,64 +548,36 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                         hst_news_padding_mask = hst_news_padding_mask_re.view(num_users, max_comments_num,
                                                                               hst_news_padding_mask_re.size(1),
                                                                               hst_news_padding_mask_re.size(2))
-                        # encoded = hst_news_encode_mlp(hc_features).view(num_users, max_comments_num, -1)
-                        # hst_news_padding_mask_2d = hst_news_padding_mask.squeeze(-1).any(dim=-1).float()
-                        # comment_aware_hst_news_features = comments_tf(comments_mlp(encoded),
-                        #                                               hst_news_padding_mask_2d)  # mask应该用hst或者comment的都可以; 借用tf和mlp
-                        # engagement_features = comment_aware_hst_news_features  # 所有user,每人一个engagement feature,来自comment和hst news
-                        # ==== 不encode,保留hc_features尺寸 ====
+                        
                         engagement_features = hc_features.view(num_users, max_comments_num, -1)
                         hst_news_padding_mask_2d = hst_news_padding_mask.squeeze(-1).any(dim=-1).float()
-                        # ====================================
                         engagement_padding_mask_2d = hst_news_padding_mask_2d
-                        # ====================
                     else:
-                        # only_one_padding_user = 1
-                        # comment_features = torch.zeros(1, max_comments_num, comments_mlp.output_size).to(DEVICE)
-                        # ==== 不encode,保留hc_features尺寸 ====
                         comment_features = torch.zeros(1, max_comments_num, cml * hst_news_input_proj.output_size).to(DEVICE)
-                        # ====================================
                         comment_padding_mask_2d = torch.zeros(1, max_comments_num).to(DEVICE)
-                        engagement_features = comment_features  # 所有user的
+                        engagement_features = comment_features
                         engagement_padding_mask_2d = comment_padding_mask_2d
 
                 if user_padding_flag:
                     user_padding_mask = engagement_padding_mask_2d
                 else:
-                    # user_out_dim = comments_mlp.output_size  # 借用comments_mlp
-                    # ==== 不encode,保留hc_features尺寸 ====
                     user_out_dim = cml * hst_news_input_proj.output_size
-                    # ====================================
-                    # user_embedding_padding = torch.zeros(max_related_users_num - num_valid_users - only_one_padding_user,
-                    #                                      max_comments_num, user_out_dim).to(DEVICE)  # 借用max_comments_num
                     a = engagement_features.size(0)
                     user_embedding_padding = torch.zeros(max_related_users_num - a,
-                                                         max_comments_num, user_out_dim).to(DEVICE)  # 借用max_comments_num
+                                                         max_comments_num, user_out_dim).to(DEVICE)
                     engagement_features_padding = torch.cat((engagement_features, user_embedding_padding), dim=0)
-                    # user_padding_mask = torch.cat((engagement_padding_mask_2d,
-                    #                                torch.zeros(max_related_users_num - num_valid_users - only_one_padding_user,
-                    #                                            max_comments_num).to(DEVICE)), dim=0)
+                    
                     user_padding_mask = torch.cat((engagement_padding_mask_2d,
                                                    torch.zeros(
                                                        max_related_users_num - a,
                                                        max_comments_num).to(DEVICE)), dim=0)
-                    engagement_features = engagement_features_padding  # 所有user的
+                    engagement_features = engagement_features_padding
 
-                # 这里正常处理engagement_features,但如果"user augmented",还要和user memory融合
-                user_features = users_tf(users_mlp(engagement_features), user_padding_mask)  # 单个news的所有users,每个人的engagements features
+                user_features = users_tf(users_mlp(engagement_features), user_padding_mask)
                 user_features_encoded = user_encode_mlp(user_features).view(user_features.size(0), -1).unsqueeze(0)
                 user_comment_all_news.append(user_features_encoded)
-                # user_comment_mask = user_padding_mask.unsqueeze(0).squeeze(-1).any(dim=-1).float()
-                # user_comment_mask_all_news.append(user_comment_mask)
-
-                # 如果user augmented，在此处先把memory和engagement_features融合，然后一起tf
+              
                 if "user augmented" in run_mode:
-                    # 1. memory要hd,engagement不用; 前面已用hd处理过user_memory_all_users
-                    # 2. 放入user_attn处理
-                    # user_memory_all_users: (max_related_users_num,256,16) -> (max_related_users_num,256,20)
-                    # [改user_memory_input_proj]: comment_input_proj_out -> ↓
-                    # comment_input_proj_out * comment_max_length / default_max_length(256) * max_comments_num
-                    # engagement_features: (max_related_users_num,max_comments_num,8) -> 不encode应该是(10,10,512)
                     user_memory_all_users = user_memory_all_users.view(max_related_users_num, -1).unsqueeze(1)
                     user_memory_padding_mask_flat = user_memory_padding_mask.squeeze(-1).any(dim=-1).float().unsqueeze(-1)
                     engagement_features = engagement_features.view(max_related_users_num, -1).unsqueeze(1)
@@ -778,38 +586,21 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
                                                              user_memory_padding_mask_flat, user_padding_mask_flat)
                     engagement_enhanced_features = engagement_enhanced_features.squeeze(1).view(max_related_users_num,
                                                                                                 max_comments_num, -1)
-                    # 3. 放入users_tf处理; 共用user_tf,因为这里如果用了,上面那个的结果不会参与loss计算,也就不会更新参数
                     user_enhanced_features = users_tf(users_mlp(engagement_enhanced_features), user_padding_mask)
                     user_enhanced_features_encoded = user_encode_mlp(
                         user_enhanced_features).view(user_enhanced_features.size(0), -1).unsqueeze(0)
-                    # 4. 存入user_enhanced_all_news,user_enhanced_mask_all_news
                     user_enhanced_all_news.append(user_enhanced_features_encoded)
-                    # user_enhanced_mask = user_padding_mask.unsqueeze(-1).any(dim=-1).float().unsqueeze(0)
-                    # user_enhanced_mask_all_news.append(user_enhanced_mask)
 
-    # save all_comment_embeddings
-    # if not comment_loaded:
-    #     save_embedding_h5(comment_embeddings_file_path, torch.cat(all_comment_embeddings, dim=0), "embedding")
-    #     save_embedding_h5(comment_mask_file_path, torch.cat(all_comment_mask, dim=0), "mask")
-    #     save_dict(comment_corres_rows_file_path, corres_rows)
-    #
-    # if not hst_news_loaded:
-    #     save_embedding_h5(hst_news_embeddings_file_path, torch.cat(all_hst_news_embeddings, dim=0), "embedding")
-    #     save_embedding_h5(hst_news_mask_file_path, torch.cat(all_hst_news_mask, dim=0), "mask")
-
-    # ==== comment和hst news合并保存 ====
     if not comment_loaded:
         save_embedding_h5(hc_embeddings_file_path, torch.cat(all_hc_embeddings, dim=0), "embedding")
         save_embedding_h5(hc_mask_file_path, torch.cat(all_hc_mask, dim=0), "mask")
-        save_dict(comment_corres_rows_file_path, corres_rows)  # 其实是hc的path
-    # =================================
+        save_dict(comment_corres_rows_file_path, corres_rows)
 
-    # processing for fnd
-    if "user replaced" in run_mode:  # 只用user memory
+    if "user replaced" in run_mode:
         user_features_all_news = torch.cat(user_memory_all_news, dim=0)
-    elif "user augmented" in run_mode:  # user memory + engagement features都用
+    elif "user augmented" in run_mode:
         user_features_all_news = torch.cat(user_enhanced_all_news, dim=0)
-    else:  # 不然就是用engagement features就行
+    else: 
         user_features_all_news = torch.cat(user_comment_all_news, dim=0)
 
     user_features_batch = user_feature_mlp(user_features_all_news).view(user_features_all_news.size(0), -1)
@@ -821,12 +612,9 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
     #         Loss Calculation
     # ================================
     classification_criterion = nn.CrossEntropyLoss()
-    # [1]: Veracity Prediction Loss
     main_veracity_loss = classification_criterion(target_logits, veracity_batch)
 
-    # ===================
     if model_type == "train":
-        # ==== 新的logits ====
         hd_news_output_all_news = hd_news_output  # news embedding
         hd_news_losses = hd_loss_calc(hd_news_output_all_news, veracity_batch, domain_batch,
                                       news_embeddings_batch_p, "news")
@@ -842,18 +630,15 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
             r2_loss += hd_n_feature_losses[3]
             loss_info += "+news_feature"
         if "user replaced" in run_mode or "user augmented" in run_mode:
-            # user memory  # padding大概不影响logits计算
             hd_u_profile_losses = hd_loss_calc(hd_u_profile_output_all_news, veracity_batch[news_which_has_profile],
                                                domain_batch[news_which_has_profile], None,
-                                               "user")  # recon_ref包含在output里面
+                                               "user")
             v_loss += hd_u_profile_losses[0]
             d_loss += hd_u_profile_losses[1]
             r1_loss += hd_u_profile_losses[2]
             r2_loss += hd_u_profile_losses[3]
             loss_info += "+user_memory"
         if "user replaced" not in run_mode:
-            # comments
-            # 有的news没有valid users,导致hd_comment_output_all_news的长度小于32.
             hd_comment_losses = hd_loss_calc(hd_comment_output_all_news, veracity_batch[news_which_has_users],
                                              domain_batch[news_which_has_users], None, "comment")
             v_loss += hd_comment_losses[0]
@@ -861,7 +646,6 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
             r1_loss += hd_comment_losses[2]
             r2_loss += hd_comment_losses[3]
             loss_info += "+comments"
-            # hst news
             hd_hst_news_losses = hd_loss_calc(hd_hst_news_output_all_news, veracity_batch[news_which_has_users],
                                               domain_batch[news_which_has_users], None, "comment")
             v_loss += hd_hst_news_losses[0]
@@ -874,16 +658,6 @@ def run(mod_list, lm_list, plain_inputs, augment_inputs, setting_inputs, path_in
         return main_veracity_loss, v_loss, d_loss, r1_loss, r2_loss
     elif model_type == "test":
         return target_logits, main_veracity_loss
-        # v_classifier = hd.veracity_classifier
-        # dsh_proj, dsf_proj = hd.dsh_proj, hd.dsf_proj
-        # dsh_feature_p = dsh_proj(dsh_feature1.permute(0, 2, 1)).squeeze(-1)
-        # dsf_feature_p = dsf_proj(dsf_feature1.permute(0, 2, 1)).squeeze(-1)
-        # vr_reconstruct_p = dsh_feature_p + dsf_feature_p
-        # dsh_v_logits = v_classifier(dsh_feature_p)
-        # dsf_v_logits = v_classifier(dsf_feature_p)
-        # vrre_logits = v_classifier(vr_reconstruct_p)
-        # return (target_logits, dsh_v_logits, dsf_v_logits, vrre_logits, main_veracity_loss, v_loss, d_loss,
-        #         r1_loss, r2_loss)
 
 
 def domain_aware_agents4cdfnd(
@@ -963,26 +737,17 @@ def domain_aware_agents4cdfnd(
     path_inputs = [news_embedding_path, news_features_embedding_path, comment_embedding_path,
                    hst_news_embedding_path, hc_embedding_path]
 
-    # [save path is on the top]
-    # (politifact_idx_dict_subset, gossipcop_idx_dict_subset, news_idx_content_dict, nidx_u_dict_subset, uc_dict_subset,
-    #  news_id_idx_dict, user_type_dict, comments_dict, u_at_dict_subset) = load_data(get_subset=get_subset,
-    #                                                                                 selected_user_num=selected_user_num,
-    #                                                                                 root_path=root_path)
-    # 1. Politifact  user:70807
     (politifact_idx_dict, p_news_idx_content_dict, p_nidx_u_dict, p_uc_dict, p_news_id_idx_dict,
      p_user_type_dict, p_comments_dict, p_u_at_dict) = load_data_domain("politifact", 0, root_path,
                                                                         get_subset=get_subset,
-                                                                        selected_user_num=selected_user_num)  # p的user很多
-    # 2. Gossipcop  user:38999
+                                                                        selected_user_num=selected_user_num)
     (gossipcop_idx_dict, g_news_idx_content_dict, g_nidx_u_dict, g_uc_dict, g_news_id_idx_dict,
      g_user_type_dict, g_comments_dict, g_u_at_dict) = load_data_domain("gossipcop", len(politifact_idx_dict), root_path,
                                                                         get_subset=get_subset,
                                                                         selected_user_num=selected_user_num)
-    # 3. Covid  user:371
     (covid_idx_dict, c_news_idx_content_dict, c_nidx_u_dict, c_uc_dict, c_news_id_idx_dict,
-     c_user_type_dict, c_comments_dict, c_u_at_dict) = load_data_domain("covid", len(politifact_idx_dict) + len(gossipcop_idx_dict), root_path)  # c数据少,不用subset
+     c_user_type_dict, c_comments_dict, c_u_at_dict) = load_data_domain("covid", len(politifact_idx_dict) + len(gossipcop_idx_dict), root_path)
 
-    # 4.0 过滤没有engagement的新闻
     politifact_idx_dict_filtered, gossipcop_idx_dict_filtered, covid_idx_dict_filtered = {}, {}, {}
     for n_idx, v in list(politifact_idx_dict.items()):
         if str(n_idx) in p_nidx_u_dict:
@@ -996,7 +761,7 @@ def domain_aware_agents4cdfnd(
     politifact_idx_dict = politifact_idx_dict_filtered
     gossipcop_idx_dict = gossipcop_idx_dict_filtered
     covid_idx_dict = covid_idx_dict_filtered
-    # 4. 合并
+
     news_idx_content_dict = {**p_news_idx_content_dict, **g_news_idx_content_dict, **c_news_idx_content_dict}
     nidx_u_dict = {**p_nidx_u_dict, **g_nidx_u_dict, **c_nidx_u_dict}
     uc_dict = {**p_uc_dict, **g_uc_dict, **c_uc_dict}
@@ -1012,22 +777,13 @@ def domain_aware_agents4cdfnd(
     dict_statistics(nidx_u_dict, "[News - Users]")
     dict_statistics(uc_dict, "[User - Comments]")
 
-    # 总的news分训练和测试,nu_dict, uc_dict根据每个batch的news得到对应的user和comment; 增强就是扩展nu_dict和uc_dict
-    # 现在以historical news为主, stance aware利用comment信息辅助historical news. 需要a.确定historical news; b.确定nc对应关系
-    # (1) 训练的时候,所有news, 去掉测试集, 剩下用于训练; 测试的时候用所用的训练新闻作为historical news,但是不用测试集中其他新闻生成embedding
-    # (2) 训练如何确定a和b:
-    # 训练集数据, 分news batch, 用nu_dict找user, 再用uc_dict找comment; 差一个un_dict,根据user找news.
-    # 训练的un_dict删掉测试news,删掉batch中的所有news; comment要和news一一对应,所以用nc_dict代替uc_dict
-    # 测试的un_dict实际上也是要留测试的,不能包含测试的,因为如果A测试用了B,会预先通过loss知道B的信息,导致泄露.因此和训练时的un_dict一样
-
-    # ========== Stage 1. generate user features based on their engagements ==========
     # (0) pathes
     news_features_dict_path = save_path + "news_features_dict"
     user_memory_dict_path = save_path + f"{selected_user_num}/user_memory_dict"
     comment_features_dict_path = save_path + f"{selected_user_num}/comment_features_dict"
     test_agent_results_path = save_path + f"{selected_user_num}/test_output.jsonl"
 
-    similarity_threshold = 30  # for ann (记得改_call_api_comment_generation的路径)
+    similarity_threshold = 30
     similar_news_dict_path = save_path + f"{selected_user_num}/similar_news_dict_{similarity_threshold}"
 
     augmented_nu_dict_path = save_path + f"{selected_user_num}/augmented_nu_dict_{similarity_threshold}"
@@ -1035,28 +791,22 @@ def domain_aware_agents4cdfnd(
     augmented_comments_dict_path = save_path + f"{selected_user_num}/augmented_comments_dict_{similarity_threshold}"
     # best_disentangler_path = root_path + "Results/disentangler/saved_[test]BEST_default/best_disentangler_3d.pt"
 
-    # (0) get news features
     news_features_input_dicts = [news_id_idx_dict, news_idx_content_dict]
     # TODO run_script(save_path, selected_user_num, news_features_input_dicts, mode="news_features")
     news_features_dict = read_ndjson_clean_save(news_features_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
 
-    # (1) train user agents  # $100
     user_agent_input_dicts = [u_at_dict, news_id_idx_dict, news_idx_content_dict]
-    # TODO run_script(save_path, selected_user_num, user_agent_input_dicts, mode="user_agent_train")
+    run_script(save_path, selected_user_num, user_agent_input_dicts, mode="user_agent_train")
     user_memory_dict = read_ndjson_clean_save(user_memory_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
-    # (2) test user agents
-    # TODO run_script(save_path, selected_user_num, user_agent_input_dicts, mode="user_agent_test")
+
+    run_script(save_path, selected_user_num, user_agent_input_dicts, mode="user_agent_test")
     evaluate_test_results(test_agent_results_path)
 
-    # (3) get user commenting features (style)  # todo covid数据集中没有comments的内容,只有tweetid,所以没有commenting features
     comment_features_input_dicts = [u_at_dict, news_id_idx_dict, news_idx_content_dict, comments_dict]
-    # TODO run_script(save_path, selected_user_num, comment_features_input_dicts, mode="comment_features")
+    run_script(save_path, selected_user_num, comment_features_input_dicts, mode="comment_features")
     comment_features_dict = read_ndjson_clean_save(comment_features_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
-    # ========== Stage 2. engagement augmentation ==========
+
     lm = init_roberta(root_path=str(Path(root_path).parent))
-    # similarity_threshold = 30
-    # similarity_threshold is distance squared
-    # max_augmented_user is number for augmentation, not total number of users
     try:
         similar_news_dict = read_dict(similar_news_dict_path)
     except FileNotFoundError:
@@ -1079,8 +829,7 @@ def domain_aware_agents4cdfnd(
                 news_user_dict[news_idx].append(user_id)
             else:
                 deleted_news_list.append(news_idx)
-        # similar_news_list = [news_idx for news_idx in similar_news_list if news_idx not in deleted_news_list]
-        # similar_news_dict_2[user_id] = similar_news_list
+
     max_news_per_user = 60
     for news_idx, users in news_user_dict.items():
         for user_id in users:
@@ -1091,34 +840,19 @@ def domain_aware_agents4cdfnd(
             similar_news_dict_2[user_id].append(news_idx)
     similar_news_dict = similar_news_dict_2  # user_id的similar_news_list
 
-    # save_dict(save_path + f"{selected_user_num}/similar_news_dict_2", similar_news_dict_2)
-    # 限制similarity_threshold和max_augmented_user之后,有些用户的similar_news_list可能为空
     comment_generation_input_dicts = [u_at_dict, news_id_idx_dict, news_idx_content_dict,
                                       similar_news_dict]
-    # TODO run_script(save_path, selected_user_num, comment_generation_input_dicts, mode="comment_generation")
+    run_script(save_path, selected_user_num, comment_generation_input_dicts, mode="comment_generation")
     augmented_nu_dict = read_ndjson_clean_save(augmented_nu_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
     augmented_uc_dict = read_ndjson_clean_save(augmented_uc_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
     augmented_comments_dict = read_ndjson_clean_save(augmented_comments_dict_path)  # first time, read_ndjson_clean_save; otherwise, read_ndjson
 
     best_metric = 0.0
-    # ========== Stage 3. use user memory and news features for FND ==========
     for i in range(len(domain_list)):
         train_news_idx_dict, test_news_idx_dict, domain_labels, domain_test_labels = {}, {}, [], []
-        if i > 2:  # 三个domain的话,只用重复A->B和B->A,C只用来测试
+        if i > 2: 
             break
         if len(domain_list) == 3:
-            # # 先不用循环训练,先试试joint training
-            # train_domain1, train_domain2, test_domain = domain_list[i], domain_list[1 - i], domain_list[2]
-            # if train_domain == "politifact":
-            #     train_news_idx_dict = politifact_idx_dict
-            #     test_news_idx_dict = gossipcop_idx_dict
-            #     domain_labels = [0] * len(train_news_idx_dict)
-            #     domain_test_labels = [1] * len(test_news_idx_dict)
-            # elif train_domain == "gossipcop":
-            #     train_news_idx_dict = gossipcop_idx_dict
-            #     test_news_idx_dict = politifact_idx_dict
-            #     domain_labels = [1] * len(train_news_idx_dict)
-            #     domain_test_labels = [0] * len(test_news_idx_dict)
             train_domain1, train_domain2, test_domain = domain_list[0], domain_list[1], domain_list[2]
             domain_map = {
                 "politifact": (politifact_idx_dict, 0),
@@ -1132,7 +866,7 @@ def domain_aware_agents4cdfnd(
             test_news_idx_dict, test_label = domain_map[test_domain]
             domain_test_labels = [test_label] * len(test_news_idx_dict)
             train_domain = f"{train_domain1} & {train_domain2}"
-        else:  # 不是3个就是1个
+        else: 
             train_domain, test_domain = domain_list[i], domain_list[i]
             test_size = 0.2
             if train_domain == "politifact":
@@ -1191,72 +925,34 @@ def domain_aware_agents4cdfnd(
         test_loader = news_dataloader(x_test_set, y_test_set, domain_test_labels, batch_size)
 
         y = torch.tensor(y_set)
-        neg = (y == 0).sum()  # true
-        pos = (y == 1).sum()  # fake
+        neg = (y == 0).sum() 
+        pos = (y == 1).sum()  
         print("neg:", neg.item(), "pos:", pos.item())
         neg_pos_weight = torch.tensor([1.0, neg / pos]).float().to(DEVICE)
 
-        # model 1: hierarchical disentangler for textual data
         converted_shape2, dglr_v_proj, dglr_d_proj = 768, dglr_proj_size, dglr_proj_size
         clf_v_proj, clf_d_proj, n_classes = clf_proj_size, clf_proj_size, 2
         alpha1, alpha2, alpha3, alpha4, alpha5 = 1, 1, 1, 10, 10  # Normalize the loss terms to a similar scale.
         w1, w2, w3, w4, w5 = loss_weight1, 1, 1, 1, 1  # weights for loss terms
 
         news_input_proj = MLP(converted_shape2, input_proj_out,
-                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 压缩; 1
+                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE) 
 
         comment_input_proj_out = input_proj_out
         comment_input_proj = MLP(converted_shape2, comment_input_proj_out,
-                                 mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 压缩; 1
+                                 mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE) 
         hst_news_input_proj = MLP(converted_shape2, comment_input_proj_out,
-                                  mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 压缩; 1 (new)
+                                  mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  
 
         news_feature_input_proj = MLP(converted_shape2, input_proj_out,
-                                      mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 压缩; 1
-        # 为了和engagement features尺寸对上
+                                      mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE) 
         user_memory_input_proj_out = int(comment_input_proj_out * comment_max_length /
                                          user_max_length * max_comments_num)
         user_memory_input_proj = MLP(converted_shape2, user_memory_input_proj_out,
-                                     mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 压缩; 1
+                                     mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE) 
 
         input_proj = [news_input_proj, comment_input_proj, hst_news_input_proj, news_feature_input_proj,
                       user_memory_input_proj]
-
-        # # 初始化写comment_max_length参数是为了comment也能一起用,所以是common_hd
-        # hd_common = HierarchicalDisentangler(input_proj_out, dglr_v_proj, dglr_d_proj,
-        #                                      clf_v_proj, clf_d_proj, n_classes,
-        #                                      news_max_length, comment_max_length).to(DEVICE)
-        #
-        # if pre_trained_hd == "F":  # news用完整的pthd,comment只用disentangler
-        #     hd = HierarchicalDisentangler(input_proj_out, dglr_v_proj, dglr_d_proj,
-        #                                   clf_v_proj, clf_d_proj, n_classes,
-        #                                   news_max_length).to(DEVICE)
-        #     # hd_comment虽然初始化了news_max_length对应的layers,但是实际不会用到.
-        #     hd_comment = HierarchicalDisentangler(comment_input_proj_out, dglr_v_proj, dglr_d_proj,
-        #                                           clf_v_proj, clf_d_proj, n_classes,
-        #                                           news_max_length, comment_max_length).to(DEVICE)
-        #
-        #     hd_checkpoint = torch.load(best_disentangler_path, map_location=DEVICE)
-        #     state_dict = hd_checkpoint['model_state_dict']
-        #     hd.load_state_dict(state_dict)
-        #     disentangler_dict = {k.replace("disentangler.", ""): v
-        #                          for k, v in state_dict.items() if k.startswith("disentangler.")}
-        #     # hd_comment的参数索性只用disentangler的部分,因为ndim == 4时会先try news部分的layer(vr_proj),可能是为了不出错.
-        #     # 不读取vr_proj参数,让hd_comment直接使用自己的vr_proj2进行映射
-        #     hd_comment.disentangler.load_state_dict(disentangler_dict)
-        #     hd = [hd, hd_comment]
-        # elif pre_trained_hd == "D":
-        #     hd_checkpoint = torch.load(best_disentangler_path, map_location=DEVICE)
-        #     state_dict = hd_checkpoint['model_state_dict']
-        #     disentangler_dict = {k.replace("disentangler.", ""): v
-        #                          for k, v in state_dict.items() if k.startswith("disentangler.")}
-        #     hd_common.disentangler.load_state_dict(disentangler_dict)
-        #     hd = hd_common
-        # elif pre_trained_hd == "N":
-        #     hd = hd_common
-        #     pass
-        # else:
-        #     raise ValueError(f"Unknown pre_trained_hd: {pre_trained_hd}")
 
         hd_news = HierarchicalDisentangler(input_proj_out, dglr_v_proj, dglr_d_proj,
                                            clf_v_proj, clf_d_proj, n_classes,
@@ -1278,8 +974,8 @@ def domain_aware_agents4cdfnd(
         if not os.path.exists(root_path + "Results/disentangler/saved_HDs/"):
             os.makedirs(root_path + "Results/disentangler/saved_HDs/")
 
-        if not pre_training_hd:  # already trained all HDs
-            cp1 = torch.load(best_hd_news_path, map_location=DEVICE)  # checkpoint
+        if not pre_training_hd:
+            cp1 = torch.load(best_hd_news_path, map_location=DEVICE)
             state_dict1 = cp1['model_state_dict']
             hd_news.load_state_dict(state_dict1)
 
@@ -1297,51 +993,48 @@ def domain_aware_agents4cdfnd(
 
         hd = [hd_news, hd_news_feature, hd_user_profile, hd_comment]
 
-        # comment
         project_out6 = int(comment_input_proj_out / mlp_comment_reduce)
         project_in1, project_out1 = (project_out6, project_out6)
         input_channel1, heads1, hidden1, layers_num1 = project_out1, tf_heads, project_out1 * tf_hid_amplify, tf_layers
 
         comment_encode_mlp = MLP(comment_input_proj_out, project_out6,
-                                 mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)  # 压缩+提取; 2
+                                 mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)
         hst_news_encode_mlp = MLP(comment_input_proj_out, project_out6,
-                                  mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)  # 压缩+提取; 2 (new)
-
+                                  mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)
         comments_mlp = MLP(project_in1 * comment_max_length, project_out1,
-                           mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)  # 用于tf的映射; 3
+                           mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)  
         comments_tf = TransformerModel(d_model=input_channel1, nhead=heads1, d_hid=hidden1, nlayers=layers_num1,
                                        dropout=0.1).to(DEVICE)
-        # user
+        
         project_in2, project_out2 = comment_input_proj_out * comment_max_length, comment_input_proj_out * comment_max_length
         input_channel2, heads2, hidden2, layers_num2 = project_out2, tf_heads, project_out2 * tf_hid_amplify, tf_layers
         project_in7, project_out7 = project_out2, int(project_out2 / mlp_user_reduce)
 
         users_mlp = MLP(project_in2, project_out2,
-                        mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)  # 用于tf的映射; 3
+                        mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)
         user_memory_mlp = MLP(user_memory_input_proj_out, user_memory_input_proj_out,
-                              mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)  # 用于tf的映射; 3
+                              mode=mlp3_mode, dropout=mlp3_dropout).to(DEVICE)
         users_tf = TransformerModel(d_model=input_channel2, nhead=heads2, d_hid=hidden2, nlayers=layers_num2,
                                     dropout=0.1).to(DEVICE)
         user_memory_tf = TransformerModel(d_model=user_memory_input_proj_out, nhead=heads2, d_hid=hidden2,
                                           nlayers=layers_num2, dropout=0.1).to(DEVICE)
         user_encode_mlp = MLP(project_in7, project_out7,
-                              mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)  # 压缩+提取; 2
-        # all for news
+                              mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)
         project_out3 = int(input_proj_out / mlp_news_reduce)
         project_in4, project_out4 = max_comments_num * project_out7, mlp_user_feature_output
         project_in8, project_out8 = max_related_users_num * project_out4, project_out3
         project_in5, project_out5 = project_out3, project_out3
 
         news_embedding_mlp = MLP(input_proj_out, project_out3,
-                                 mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)  # 压缩+提取; 2
+                                 mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE) 
         news_output_mlp = MLP(news_max_length * project_out3, project_out3,
-                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 纯粹压缩; 1
+                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE) 
         user_feature_mlp = MLP(project_in4, project_out4,
-                               mode=mlp2_mode, dropout=mlp2_dropout, n_layers=3).to(DEVICE)  # 压缩+提取; 2
+                               mode=mlp2_mode, dropout=mlp2_dropout, n_layers=3).to(DEVICE)  
         before_target_mlp = MLP(project_in8, project_out8,
-                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  # 纯粹压缩; 1
+                              mode=mlp1_mode, dropout=mlp1_dropout).to(DEVICE)  
         target_mlp = MLP(project_in5, project_out5,
-                         mode=mlp4_mode, dropout=mlp4_dropout).to(DEVICE)  # 映射,融合不同模态的特征; 4
+                         mode=mlp4_mode, dropout=mlp4_dropout).to(DEVICE)  
 
         classifier = Classifier(project_out3, classifier_hidden, 2, dropout=classifier_dropout).to(DEVICE)
 
@@ -1364,7 +1057,7 @@ def domain_aware_agents4cdfnd(
         # model 3: memory feature
         if "user replaced" in run_mode or "user augmented" in run_mode:
             memory_encode_mlp = MLP(project_in7 * max_comments_num, project_out7 * max_comments_num,
-                                    mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE)  # 压缩+提取; 2
+                                    mode=mlp2_mode, dropout=mlp2_dropout).to(DEVICE) 
             models.append(memory_encode_mlp)
         if "user replaced" not in run_mode:
             models.append(user_encode_mlp)
@@ -1399,23 +1092,12 @@ def domain_aware_agents4cdfnd(
             dict_statistics(nidx_u_dict, "[Augmented][News - Users]")
             dict_statistics(uc_dict, "[Augmented][User - Comments]")
 
-            # ========== [statistics] 统计augmented[后]新闻和用户数量变化 ==========
-            # TODO  统计新增common user数量. augmented_nu_dict: {news_idx: user_id_list}
-            # zero_user = sum(1 for news_idx, user_list in nidx_u_dict.items() if len(user_list) == 0)
-            # print(f"[Statistics] Number of news with zero users: {zero_user} out of "
-            #       f"{len(nidx_u_dict)} news.")
-            #
-            # zero_comment = sum(1 for user_id, comment_list in uc_dict.items() if len(comment_list) == 0)
-            # print(f"[Statistics] Number of users with zero comments: {zero_comment} out of "
-            #       f"{len(uc_dict)} users.")
-            # =================================================================
-
         # model 4: memory feature
         if "news augmented" in run_mode:
             query_dim1, key_dim1, hidden_dim1, out_dim1 = (input_proj_out,
                                                            input_proj_out,
                                                            input_proj_out,
-                                                           input_proj_out)  # [tuning] #5 attn projs
+                                                           input_proj_out) 
             if news_attention_type == "cross":
                 news_attn = CrossAttention(query_dim1, key_dim1, hidden_dim1, out_dim1,
                                            news_attn_dropout, news_out_dropout, news_attn_layer_norm).to(DEVICE)
@@ -1434,7 +1116,6 @@ def domain_aware_agents4cdfnd(
             if user_attention_type == "cross":
                 user_attn = CrossAttention(query_dim2, key_dim2, hidden_dim2, out_dim2,
                                            user_attn_dropout, user_out_dropout, user_attn_layer_norm).to(DEVICE)
-                # [Note]: comments特征和用户profile似乎都很重要,且不分主次,所以用co_attention来处理.
             elif user_attention_type == "co":
                 user_attn = CoAttention(query_dim2, key_dim2, hidden_dim2, out_dim2,
                                         user_attn_dropout, user_out_dropout, user_attn_layer_norm).to(DEVICE)
@@ -1492,7 +1173,6 @@ def domain_aware_agents4cdfnd(
                 plain_inputs = [step, news_batch, content_list, veracity_label, domain_label, nidx_u_dict,
                                 uc_dict, comments_dict]
 
-                # 去掉un_dict中的测试用新闻idx
                 un_dict_4batch = {}
                 for nidx, user_list in nidx_u_dict.items():
                     nidx = int(nidx)
@@ -1524,7 +1204,7 @@ def domain_aware_agents4cdfnd(
             avg_train_loss = total_train_loss / len(train_loader)
             print("\n  Average training loss: {}".format(avg_train_loss))
 
-            if pre_training_hd:  # best loss应该都是一样的
+            if pre_training_hd:  
                 best_loss1 = save_best_model(best_hd_news_path, hd_news, optimizer,
                                              epoch, best_loss, avg_train_loss)
                 best_loss2 = save_best_model(best_hd_news_feature_path, hd_news_feature, optimizer,
@@ -1535,7 +1215,7 @@ def domain_aware_agents4cdfnd(
                                              epoch, best_loss, avg_train_loss)
                 best_loss = min(best_loss1, best_loss2, best_loss3, best_loss4)
 
-            if ((epoch + 1) % 5 == 0 or (epoch + 1) >= epochs * 0.8) and not pre_training_hd:  # pretrain不用test
+            if ((epoch + 1) % 5 == 0 or (epoch + 1) >= epochs * 0.8) and not pre_training_hd: 
                 # ========================================
                 #               Testing
                 # ========================================
@@ -1552,7 +1232,6 @@ def domain_aware_agents4cdfnd(
                     plain_inputs = [step, news_batch, content_list, veracity_label, domain_label, nidx_u_dict,
                                     uc_dict, comments_dict]
 
-                    # 去掉un_dict中的测试用新闻idx
                     un_dict_4batch = {}
                     for nidx, user_list in nidx_u_dict.items():
                         nidx = int(nidx)
@@ -1590,19 +1269,12 @@ def domain_aware_agents4cdfnd(
                 _, _, _, _, test_macro_f1, _ = compute_metrics_print(test_target_logits, test_veracity_label,
                                                                      f"Veracity Prediction on {test_domain.title()}",
                                                                      has_return=True)
-                # compute_metrics_print(test_dsh_v_logits, test_veracity_label,
-                #                       f"[Disentangler]: Domain-Shared Features on {test_domain.title()}")
-                # compute_metrics_print(test_dsf_v_logits, test_veracity_label,
-                #                       f"[Disentangler]: Domain-Specific Features on {test_domain.title()}")
-                # compute_metrics_print(test_vrre_logits, test_veracity_label,
-                #                       f"[Disentangler]: Reconstructed VR Features on {test_domain.title()}")
 
                 early_stopping(test_macro_f1)
                 if early_stopping.early_stop:
                     print(f"Stopped at epoch:{epoch}, with best_macro_f1:{early_stopping.best_score}")
                     break
 
-            # print("Memory (GB):", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 3)
 
         end_running_time = datetime.datetime.now()
         end_running_timestamp = end_running_time.strftime("%Y%m%d_%H%M%S")
@@ -1665,19 +1337,17 @@ def save_best_model(best_model_path, hd, optimizer, epoch, best_loss, current_lo
 def run_domain_aware_agents():
     parser = argparse.ArgumentParser()
     # training
-    parser.add_argument("--root_path", default="/scratch/hq47/xy8058/workspace/LLMFND/")
-    # "D:/WorkSpace/workspace/LLMFND/", "/root/autodl-tmp/workspace/LLMFND/", "/scratch/hq47/xy8058/workspace/LLMFND/"
+    parser.add_argument("--root_path")
     parser.add_argument("--selected_user_num", default=10000)
-    parser.add_argument("--get_subset", default=True)  # 是否使用selected_user_num进行实验
+    parser.add_argument("--get_subset", default=True)  
     parser.add_argument("--is_one_round", default=True)
     parser.add_argument("-d", "--domain_list", nargs="+",
                         default=["politifact", "gossipcop", "covid"], help="List of domains")
     parser.add_argument("-delta", "--early_stop_delta", type=float, default=1e-5)
-    parser.add_argument("-rn", "--run_name", default="debug", required=True)  # required=True
+    parser.add_argument("-rn", "--run_name", default="debug", required=True) 
     parser.add_argument("--run_mode", default="news augmented & user augmented & engagement augmented")
-    parser.add_argument("--optuna_flag", action="store_true")  # default: False
-    parser.add_argument("-cfg", "--config_name", required=True)  # can be None; required=True;
-    # "news replaced & user replaced", "news augmented & user augmented"
+    parser.add_argument("--optuna_flag", action="store_true") 
+    parser.add_argument("-cfg", "--config_name", required=True)  
     # run_mode:
     # +------------------+-------------------------------+----------------------------------------------+
     # | Run Mode         | News Content Features         | User Engagement Features                     |
@@ -1702,65 +1372,65 @@ def run_domain_aware_agents():
     # +------------------+-------------------------------+----------------------------------------------+
     # disentangler
     parser.add_argument("-ptd",
-                        "--pre_training_hd", action="store_true")  # default: False
+                        "--pre_training_hd", action="store_true")
     parser.add_argument("-ea_mode",
-                        "--engagement_augment_mode")  # "user_only", "comment_only", "both"
+                        "--engagement_augment_mode") 
     parser.add_argument("-c_mode",
-                        "--comment_embed_mode")  # "dsh", "dsh_dsf", "raw"
-    parser.add_argument("-dp_size", "--dglr_proj_size", type=int)  # [best] 32
-    parser.add_argument("-cp_size", "--clf_proj_size", type=int)  # [best] 64, 16
+                        "--comment_embed_mode") 
+    parser.add_argument("-dp_size", "--dglr_proj_size", type=int) 
+    parser.add_argument("-cp_size", "--clf_proj_size", type=int) 
     # augmentation
-    parser.add_argument("--neighbor_num", type=int)  # ann寻找相似新闻的个数
+    parser.add_argument("--neighbor_num", type=int)  
     parser.add_argument("-max_au",
-                        "--max_augmented_user", type=int)  # 限制增强的数量
+                        "--max_augmented_user", type=int)  
     parser.add_argument("-max_u",
-                        "--max_related_users_num", type=int)  # 限制每个新闻的用户总数量,包含增强的和原有的
+                        "--max_related_users_num", type=int)  
     parser.add_argument("-max_c",
-                        "--max_comments_num", type=int)  # (20, 20); (10, 35); [bset] (20, 35);
+                        "--max_comments_num", type=int)  
     # hyper parameters
-    parser.add_argument("-proj", "--input_proj_out", type=int)  # [bset] 32, 64, 128
-    parser.add_argument("-cml", "--comment_max_length", type=int)  # [best] 128, 64(prec)
+    parser.add_argument("-proj", "--input_proj_out", type=int) 
+    parser.add_argument("-cml", "--comment_max_length", type=int)  
     parser.add_argument("-nml", "--news_max_length", type=int)
     parser.add_argument("-uml", "--user_max_length", type=int)
 
-    parser.add_argument("-w1", "--loss_weight1", type=int)  # [best] 1
+    parser.add_argument("-w1", "--loss_weight1", type=int) 
     # transformer
-    parser.add_argument("-tf_h", "--tf_heads", type=int)  # [best] 2, 4 when input_proj_out=128
-    parser.add_argument("-tf_l", "--tf_layers", type=int)  # [best] 3
-    parser.add_argument("-tf_a", "--tf_hid_amplify", type=int)  # [best] 2, 4(AUC), 8; d_model/nhead best >= 32
+    parser.add_argument("-tf_h", "--tf_heads", type=int) 
+    parser.add_argument("-tf_l", "--tf_layers", type=int) 
+    parser.add_argument("-tf_a", "--tf_hid_amplify", type=int) 
     # MLP
-    parser.add_argument("-mlp_c", "--mlp_comment_reduce", type=int)  # [best] 2 (input_proj_out=32), 8 (input_proj_out=64, 128)
-    parser.add_argument("-mlp_n", "--mlp_news_reduce", type=int)  #  [best] 2 (input_proj_out=32), 8 (input_proj_out=64, 128)
-    parser.add_argument("-mlp_u", "--mlp_user_reduce", type=int)  # [best] 2, 8, while input_proj_out=64
-    parser.add_argument("-out_uf", "--mlp_user_feature_output", type=int)  # [best] 4 is better than 2, a little
-    # MLP mode: 之前的默认是encode+default=0.0
-    parser.add_argument("-mlp1_m", "--mlp1_mode")  # 压缩: [bset] project; dropout; 1
-    parser.add_argument("-mlp1_d", "--mlp1_dropout", type=float)  # [bset] 0.2
-    parser.add_argument("-mlp2_m", "--mlp2_mode")  # 压缩+提取: [bset] encode; dropout; 2
-    parser.add_argument("-mlp2_d", "--mlp2_dropout", type=float)  # [bset] 0.2
-    parser.add_argument("-mlp3_m", "--mlp3_mode")  # 用于tf的映射: [bset] project; dropout=0.0; 3
-    parser.add_argument("-mlp3_d", "--mlp3_dropout", type=float)  # [bset] 0.0
-    parser.add_argument("-mlp4_m", "--mlp4_mode")  # for target_mlp: [bset] encode; dropout; 4
-    parser.add_argument("-mlp4_d", "--mlp4_dropout", type=float)  # [bset] 0.0
+    parser.add_argument("-mlp_c", "--mlp_comment_reduce", type=int) 
+    parser.add_argument("-mlp_n", "--mlp_news_reduce", type=int)  
+    parser.add_argument("-mlp_u", "--mlp_user_reduce", type=int)  
+    parser.add_argument("-out_uf", "--mlp_user_feature_output", type=int)  
+    # MLP mode: 
+    parser.add_argument("-mlp1_m", "--mlp1_mode")  
+    parser.add_argument("-mlp1_d", "--mlp1_dropout", type=float)  
+    parser.add_argument("-mlp2_m", "--mlp2_mode") 
+    parser.add_argument("-mlp2_d", "--mlp2_dropout", type=float)  
+    parser.add_argument("-mlp3_m", "--mlp3_mode") 
+    parser.add_argument("-mlp3_d", "--mlp3_dropout", type=float)  
+    parser.add_argument("-mlp4_m", "--mlp4_mode")  
+    parser.add_argument("-mlp4_d", "--mlp4_dropout", type=float)  
     # attention
-    parser.add_argument("-n_attn", "--news_attention_type")  # [best] co
-    parser.add_argument("-u_attn", "--user_attention_type")  # [best] cross
-    parser.add_argument("-n_ad", "--news_attn_dropout", type=float)  # [best] 0.0
-    parser.add_argument("-n_od", "--news_out_dropout", type=float)  # [best] 0.0
-    parser.add_argument("-u_ad", "--user_attn_dropout", type=float)  # [best] 0.0
-    parser.add_argument("-u_od", "--user_out_dropout", type=float)  # [best] 0.0
-    parser.add_argument("-n_aln", "--news_attn_layer_norm", action="store_false", default=True)  # [best] True
-    parser.add_argument("-u_aln", "--user_attn_layer_norm", action="store_false", default=True)  # [best] True
-    # (new)
-    parser.add_argument("-hc_attn", "--hc_attention_type", default="co")  # [best] TODO ?
-    parser.add_argument("-hc_ad", "--hc_attn_dropout", type=float, default=0.0)  # [best] 0.0
-    parser.add_argument("-hc_od", "--hc_out_dropout", type=float, default=0.0)  # [best] 0.0
-    parser.add_argument("-hc_aln", "--hc_attn_layer_norm", action="store_false", default=True)  # [best] True
+    parser.add_argument("-n_attn", "--news_attention_type")  
+    parser.add_argument("-u_attn", "--user_attention_type") 
+    parser.add_argument("-n_ad", "--news_attn_dropout", type=float)  
+    parser.add_argument("-n_od", "--news_out_dropout", type=float)  
+    parser.add_argument("-u_ad", "--user_attn_dropout", type=float)  
+    parser.add_argument("-u_od", "--user_out_dropout", type=float)  
+    parser.add_argument("-n_aln", "--news_attn_layer_norm", action="store_false", default=True)  
+    parser.add_argument("-u_aln", "--user_attn_layer_norm", action="store_false", default=True)  
+
+    parser.add_argument("-hc_attn", "--hc_attention_type", default="co") 
+    parser.add_argument("-hc_ad", "--hc_attn_dropout", type=float, default=0.0) 
+    parser.add_argument("-hc_od", "--hc_out_dropout", type=float, default=0.0) 
+    parser.add_argument("-hc_aln", "--hc_attn_layer_norm", action="store_false", default=True) 
     # classifier
-    parser.add_argument("-clf_h", "--classifier_hidden", type=int)  # [bset] 8, 16(recall)
-    parser.add_argument("-clf_d", "--classifier_dropout", type=float)  # [bset] 0.2
+    parser.add_argument("-clf_h", "--classifier_hidden", type=int) 
+    parser.add_argument("-clf_d", "--classifier_dropout", type=float) 
     # training
-    parser.add_argument("-lr", "--lr", type=float)  # default: 1e-4
+    parser.add_argument("-lr", "--lr", type=float) 
 
     args = parser.parse_args()
     save_path = args.root_path + "Results/domain_aware_agents/"
@@ -1774,7 +1444,7 @@ def run_domain_aware_agents():
     sys.stdout = Tee(sys.__stdout__, log_file)
 
     param_names = [
-        "selected_user_num", "get_subset", "is_one_round", "domain_list", "early_stop_delta", "run_mode", "optuna_flag", # 第一行有默认值
+        "selected_user_num", "get_subset", "is_one_round", "domain_list", "early_stop_delta", "run_mode", "optuna_flag", 
         "pre_training_hd", "engagement_augment_mode", "comment_embed_mode", "dglr_proj_size", "clf_proj_size",
         "neighbor_num", "max_augmented_user", "max_related_users_num", "max_comments_num",
         "input_proj_out", "comment_max_length", "news_max_length", "user_max_length", "loss_weight1",
