@@ -28,9 +28,11 @@ pip install -r requirements.txt
 
 # Extract dataset files
 unrar x /Results/Prelim/fake_news_datasets.rar
+```
 
 ### 2. Run Experiments
 
 ```bash
 # Run default experiment
 python domain_aware_agents.py
+```
