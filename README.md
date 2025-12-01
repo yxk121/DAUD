@@ -1,4 +1,4 @@
-# DAUD: Domain-Aware User-Driven Framework for Cross-Domain Fake News Detection
+# Cross-Domain Fake News Detection on Unseen Domains via LLM-Based Domain-Aware User Modeling
 
 ## System Requirements
 - Python 3.7+
