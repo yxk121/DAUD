@@ -27,4 +27,4 @@ Main dependencies include:
 pip install -r requirements.txt
 
 # Extract dataset files
-unzip fake_news_datasets.zip
+unrar x /Results/Prelim/fake_news_datasets.rar
